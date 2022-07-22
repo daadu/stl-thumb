@@ -115,7 +115,7 @@ impl Mesh {
             _ => {
                 // TODO: Try BufReader and see if it's faster
                 let stl_file = File::open(&stl_filename)?;
-                if stl_filename.ends_with(".obj") {
+                if stl_filename.to_lowercase().ends_with(".obj") {
                     Mesh::from_obj(stl_file)
                 } else {
                     Mesh::from_stl(stl_file, recalc_normals)
