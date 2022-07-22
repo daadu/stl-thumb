@@ -1,9 +1,11 @@
 extern crate cgmath;
 extern crate stl_io;
+extern crate tobj;
 
+use std::collections::hash_map::HashMap;
 use std::error::Error;
 use std::fs::File;
-use std::io::{Cursor, Read, Seek};
+use std::io::{Cursor, Read, Seek, BufReader};
 use std::{fmt, io};
 
 #[derive(Copy, Clone)]
@@ -108,11 +110,16 @@ impl Mesh {
                 let mut input_buffer = Vec::new();
                 io::stdin().read_to_end(&mut input_buffer)?;
                 Mesh::from_stl(Cursor::new(input_buffer), recalc_normals)
+                // TODO: check if file format is OBJ then use `Mesh::from_obj`
             }
             _ => {
                 // TODO: Try BufReader and see if it's faster
                 let stl_file = File::open(&stl_filename)?;
-                Mesh::from_stl(stl_file, recalc_normals)
+                if stl_filename.ends_with(".obj") {
+                    Mesh::from_obj(stl_file)
+                } else {
+                    Mesh::from_stl(stl_file, recalc_normals)
+                }
             }
         }
     }
@@ -155,6 +162,76 @@ impl Mesh {
         info!("Triangles processed:\t{}\n", face_count);
 
         Ok(mesh)
+    }
+
+    pub fn from_obj(obj_file: File) -> Result<Mesh, Box<dyn Error>>
+    {
+        let mut input = BufReader::new(obj_file);
+        let (models, _) =
+            tobj::load_obj_buf(&mut input, true, |_| Ok((Vec::new(), HashMap::new())))?;
+
+
+
+        let first_mesh = &models.iter().next().ok_or("Empty Model")?.mesh;
+        let mut first_vertex = first_mesh
+            .positions
+            .iter();
+        let v1 = stl_io::Vector::new([
+            *first_vertex.next().ok_or("Empty Mesh")?,
+            *first_vertex.next().ok_or("Empty Mesh")?,
+            *first_vertex.next().ok_or("Empty Mesh")?,
+        ]);
+        let mut mesh = Mesh {
+            vertices: Vec::with_capacity(first_mesh.positions.len() / 3),
+            normals: Vec::with_capacity(first_mesh.normals.len() / 3),
+            indices: Vec::with_capacity(first_mesh.indices.len() / 3),
+            bounds: BoundingBox::new(&v1),
+            stl_had_normals: true,
+        };
+        for model in &models {
+            let tri_idx = &model.mesh.indices;
+            let p = &model.mesh.positions;
+            let n = &model.mesh.normals;
+            for i in (0..tri_idx.len()).step_by(3) {
+                let index0: usize = tri_idx[i] as usize;
+                let index1: usize = tri_idx[i + 1] as usize;
+                let index2: usize = tri_idx[i + 2] as usize;
+
+                let vertices = [
+                    ([p[index0 * 3], p[index0 * 3 + 1], p[index0 * 3 + 2]]),
+                    ([p[index1 * 3], p[index1 * 3 + 1], p[index1 * 3 + 2]]),
+                    ([p[index2 * 3], p[index2 * 3 + 1], p[index2 * 3 + 2]]),
+                ];
+                for v in vertices.iter() {
+                    mesh.bounds.expand(&stl_io::Vector::new(*v));
+                    mesh.vertices.push(Vertex { position: *v });
+                    //debug!("{:?}", v);
+                }
+
+                let normals = if n.len() > 0 {
+                    [
+                        ([n[index0 * 3], n[index0 * 3 + 1], n[index0 * 3 + 2]]),
+                        ([n[index1 * 3], n[index1 * 3 + 1], n[index1 * 3 + 2]]),
+                        ([n[index2 * 3], n[index2 * 3 + 1], n[index2 * 3 + 2]]),
+                    ]
+                } else {
+                    let mut vert_iter = vertices.iter();
+                    let n = normal(&stl_io::Triangle{ 
+                        vertices: [
+                            stl_io::Vector::new(*vert_iter.next().ok_or("ERROR!")?),
+                            stl_io::Vector::new(*vert_iter.next().ok_or("ERROR!")?),
+                            stl_io::Vector::new(*vert_iter.next().ok_or("ERROR!")?),
+                        ],
+                        normal: stl_io::Vector::new([0.0, 0.0, 0.0]),
+                    });
+                    [n.normal, n.normal, n.normal]
+                };
+                for normal in normals.iter() {
+                    mesh.normals.push(Normal { normal: *normal });
+                }
+            }
+        }
+        return Ok(mesh);
     }
 
     fn process_tri(&mut self, tri: &stl_io::Triangle, recalc_normals: bool) {

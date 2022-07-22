@@ -32,6 +32,7 @@ log = "0.4.17"
 mint = "0.5.9"
 stderrlog = "0.5.1"
 stl_io = "0.6.0"
+tobj = "2.0.3"
 
 [patch.crates-io]
 glutin = { git = "https://github.com/rust-windowing/glutin.git", rev = "07c461e" }
@@ -52,6 +53,14 @@ harness = false
 
 [[bench]]
 name = "shipwreck"
+harness = false
+
+[[bench]]
+name = "benchy_obj"
+harness = false
+
+[[bench]]
+name = "cube_obj"
 harness = false
 
 [package.metadata.deb]
